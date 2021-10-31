@@ -1,0 +1,267 @@
+/*
+ * Example
+ *
+ * If you encounter any issues:
+ * - check the readme.md at https://github.com/sinricpro/esp8266-esp32-sdk/blob/master/README.md
+ * - ensure all dependent libraries are installed
+ * - see https://github.com/sinricpro/esp8266-esp32-sdk/blob/master/README.md#arduinoide
+ * - see https://github.com/sinricpro/esp8266-esp32-sdk/blob/master/README.md#dependencies
+ * - open serial monitor and check whats happening
+ * - check full user documentation at https://sinricpro.github.io/esp8266-esp32-sdk
+ * - visit https://github.com/sinricpro/esp8266-esp32-sdk/issues and check for existing issues or open a new one
+ */
+
+ // Custom devices requires SinricPro ESP8266/ESP32 SDK 2.9.6 or later
+
+// Uncomment the following line to enable serial debug output
+#define ENABLE_DEBUG
+
+#ifdef ENABLE_DEBUG
+  #define DEBUG_ESP_PORT Serial
+  #define NODEBUG_WEBSOCKETS
+  #define NDEBUG
+#endif
+
+#include <Arduino.h>
+#ifdef ESP8266
+  #include <ESP8266WiFi.h>
+#endif
+#ifdef ESP32
+  #include <WiFi.h>
+#endif
+
+#include <SinricPro.h>
+#include "Photosensor.h"
+
+//Getting Time
+#include "NTPClient.h"
+#include "WiFiUdp.h"
+
+const long utcOffsetInSeconds = -25200;
+char daysOfTheWeek[7][12] = {"Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"};
+WiFiUDP ntpUDP;
+NTPClient timeClient(ntpUDP, "pool.ntp.org", utcOffsetInSeconds);
+
+#define APP_KEY    "01610d57-23af-4e26-bc2e-dea60cb27b5c"
+#define APP_SECRET "f4edf786-8c9c-4bb6-8c14-1abd09305a0d-de93f12c-7bed-4313-b38e-4b4c65a0a649"
+#define DEVICE_ID  "61107812bab19d405819303c"
+#define DEVICE_ID1  "611acadafc89cf4050894578"
+
+#define SSID       "ArnaviPhone"
+#define PASS       "arnavaggs"
+
+#define BAUD_RATE  9600
+
+Photosensor &photosensor = SinricPro[DEVICE_ID];
+Photosensor &photosensor1 = SinricPro[DEVICE_ID1];
+
+/*************
+ * Variables *
+ ***********************************************
+ * Global variables to store the device states *
+ ***********************************************/
+
+// PowerStateController
+bool globalPowerState = true;
+bool globalPowerState1 = true;
+
+// ModeController
+std::map<String, String> globalModes;
+std::map<String, String> globalModes1;
+
+
+bool lastMedState = false;
+bool actualMedState = false;
+bool secondLastMedState = false;
+bool secondActualMedState = false;
+unsigned long lastChange = 0;
+int counter = 1;
+int today = 0;
+int yesterday = 0;
+int pinArray[7] = {5, 5, 4, 5, 14, 12, 5};
+int todayPin = 0;
+int yesterdayPin = 0;
+int todayRead = 0;
+int yesterdayRead = 0;
+int lasttodayRead = -1;
+int lastyesterdayRead = -1;
+int lasttoday = timeClient.getDay();
+
+/*************
+ * Callbacks *
+ *************/
+
+// PowerStateController
+bool onPowerState(const String &deviceId, bool &state) {
+  Serial.printf("[Device: %s]: Powerstate changed to %s\r\n", deviceId.c_str(), state ? "on" : "off");
+  if(deviceId == DEVICE_ID){
+    globalPowerState = state;
+  }
+  if(deviceId == DEVICE_ID1){
+    globalPowerState1 = state;
+  }
+  return true; // request handled properly
+}
+
+// ModeController
+bool onSetMode(const String& deviceId, const String& instance, String &mode) {
+  Serial.printf("[Device: %s]: Modesetting for \"%s\" set to mode %s\r\n", deviceId.c_str(), instance.c_str(), mode.c_str());
+  if(deviceId == DEVICE_ID){
+    globalModes[instance] = mode;
+  }
+  if(deviceId == DEVICE_ID1){
+    globalModes1[instance] = mode;
+  }
+  return true;
+}
+
+/**********
+ * Events *
+ *************************************************
+ * Examples how to update the server status when *
+ * you physically interact with your device or a *
+ * sensor reading changes.                       *
+ *************************************************/
+
+// PowerStateController
+void updatePowerState(bool state) {
+  photosensor.sendPowerStateEvent(state);
+}
+void updatePowerState1(bool state) {
+  photosensor1.sendPowerStateEvent(state);
+}
+
+
+// ModeController
+void updateMode(String instance, String mode) {
+  photosensor.sendModeEvent(instance, mode, "PHYSICAL_INTERACTION");
+}
+void updateMode1(String instance, String mode) {
+  photosensor1.sendModeEvent(instance, mode, "PHYSICAL_INTERACTION");
+}
+
+void handlePhotosensor(){
+    if (!globalPowerState) return;                            // if device switched off...do nothing
+  
+  unsigned long actualMillis = millis();
+  if (actualMillis - lastChange >= 1000){
+    lastChange = actualMillis;
+    //today = timeClient.getDay();
+    today = 2;
+    yesterday = (today + 6) % 7;  
+//    if(today != lasttoday){
+//      lasttodayRead = -1;
+//      lastyesterdayRead = -1;
+//    }
+    
+//    if (counter % 9 == 0){
+//      actualMedState = !actualMedState;
+//    }
+//    if (counter % 13 == 0){
+//      secondActualMedState = !secondActualMedState;
+//    }
+//      counter = counter + 1;
+    todayPin = pinArray[today];
+    yesterdayPin = pinArray[yesterday];
+    todayRead = digitalRead(todayPin);
+    yesterdayRead = digitalRead(yesterdayPin);
+//    if (today == 0 || today == 3 || today == 6){
+//      updateMode("modeInstance1","Free");
+//      if (today == 0){
+//        updateMode1("modeInstance1","Free");
+//      }
+//      return;
+//    }
+//    if(yesterday == 0 || yesterday == 3 || yesterday == 6){
+//      updateMode1("modeInstance1","Free");
+//      return;
+//    }
+    if (todayRead != lasttodayRead) {         // if state has changed
+      //Serial.printf("Today's Pill is %s now\r\n", actualMedState?"Present":"Absent");
+      lasttodayRead = todayRead;              // update last known state
+      if(today == 0 || today == 3 || today == 6){
+        updateMode("modeInstance1","Free");
+      }
+      else{
+        if(todayRead == 0){
+          Serial.println("Today's Pill is present now");
+          updateMode("modeInstance1","Forgotten");
+        }
+        if(todayRead == 1){
+          Serial.println("Today's Pill is absent now");
+          updateMode("modeInstance1","Taken");
+        }
+     }
+    }
+    if (yesterdayRead != lastyesterdayRead){
+      //Serial.printf("Tuesday's Pill is %s now\r\n", secondActualMedState?"Present":"Absent");
+      lastyesterdayRead = yesterdayRead;
+      if(yesterday == 0 || yesterday == 3 || yesterday == 6){
+        updateMode1("modeInstance1","Free");
+      }
+      
+      else{
+        if(yesterdayRead == 0){
+          Serial.println("Yesterday's Pill is present now");
+          updateMode1("modeInstance1","Forgotten");
+        }
+        if(yesterdayRead == 1){
+          Serial.println("Yesterday's Pill is absent now");
+          updateMode1("modeInstance1","Taken");
+        }
+      }
+    }
+ }
+}
+
+/********* 
+ * Setup *
+ *********/
+
+void setupSinricPro() {
+
+  // PowerStateController
+  photosensor.onPowerState(onPowerState);
+  photosensor1.onPowerState(onPowerState);
+  
+  // ModeController
+  photosensor.onSetMode("modeInstance1", onSetMode);
+  photosensor1.onSetMode("modeInstance1", onSetMode);
+  
+
+  SinricPro.onConnected([]{ Serial.printf("[SinricPro]: Connected\r\n"); });
+  SinricPro.onDisconnected([]{ Serial.printf("[SinricPro]: Disconnected\r\n"); });
+  SinricPro.begin(APP_KEY, APP_SECRET);
+};
+
+void setupWiFi() {
+  WiFi.begin(SSID, PASS);
+  Serial.printf("[WiFi]: Connecting to %s", SSID);
+  while (WiFi.status() != WL_CONNECTED) {
+    Serial.printf(".");
+    delay(250);
+  }
+  Serial.printf("connected\r\n");
+}
+
+void setup() {
+  Serial.begin(BAUD_RATE);
+  setupWiFi();
+  setupSinricPro();
+  timeClient.begin();
+  pinMode(5, INPUT);
+  pinMode(4, INPUT);
+  pinMode(14, INPUT);
+  pinMode(12, INPUT);
+}
+
+/********
+ * Loop *
+ ********/
+
+void loop() {
+  timeClient.update();
+  handlePhotosensor();
+  SinricPro.handle();
+  
+}
